@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
+import sqlalchemy
 from datetime import datetime, time, timedelta, date
 
 # ==============================================================================
@@ -80,148 +80,141 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# CONFIGURAÇÃO DO BANCO DE DADOS (SQLite)
+# CONFIGURAÇÃO DO BANCO DE DADOS NA NUVEM (PostgreSQL / Supabase)
 # ==============================================================================
 def conectar_bd():
-    conn = sqlite3.connect("clientes_studio_v2.db", check_same_thread=False)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS clientes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cpf TEXT UNIQUE NOT NULL,
-            nome TEXT NOT NULL,
-            email TEXT,
-            data_nascimento TEXT,
-            idade INTEGER,
-            endereco TEXT,
-            telefone TEXT,
-            contato_emergencia TEXT,
-            objetivo TEXT,
-            plano TEXT,
-            dias_semana TEXT,
-            horarios TEXT
-        )
-    ''')
-    
-    cursor.execute("PRAGMA table_info(clientes)")
-    colunas_existentes = [coluna[1] for coluna in cursor.fetchall()]
-    for col, tipo in {"email": "TEXT", "data_nascimento": "TEXT", "contato_emergencia": "TEXT"}.items():
-        if col not in colunas_existentes:
-            cursor.execute(f"ALTER TABLE clientes ADD COLUMN {col} {tipo}")
+    # Pega a string de conexão dos secrets do Streamlit
+    db_url = st.secrets["SUPABASE_URL"]
+    engine = sqlalchemy.create_engine(db_url)
+    return engine
 
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS profissionais (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome_prof TEXT NOT NULL,
-            conselho TEXT NOT NULL,
-            registro TEXT NOT NULL
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS prontuarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cpf_cliente TEXT NOT NULL,
-            data_atendimento TEXT NOT NULL,
-            profissional TEXT NOT NULL,
-            atividades TEXT NOT NULL,
-            evolucao TEXT NOT NULL
-        )
-    ''')
-    
-    conn.commit()
-    return conn
+engine = conectar_bd()
 
-conn = conectar_bd()
+def inicializar_tabelas():
+    with engine.begin() as conn:
+        conn.execute(sqlalchemy.text('''
+            CREATE TABLE IF NOT EXISTS clientes (
+                id SERIAL PRIMARY KEY,
+                cpf TEXT UNIQUE NOT NULL,
+                nome TEXT NOT NULL,
+                email TEXT,
+                data_nascimento TEXT,
+                idade INTEGER,
+                endereco TEXT,
+                telefone TEXT,
+                contato_emergencia TEXT,
+                objetivo TEXT,
+                plano TEXT,
+                dias_semana TEXT,
+                horarios TEXT
+            )
+        '''))
+        conn.execute(sqlalchemy.text('''
+            CREATE TABLE IF NOT EXISTS profissionais (
+                id SERIAL PRIMARY KEY,
+                nome_prof TEXT NOT NULL,
+                conselho TEXT NOT NULL,
+                registro TEXT NOT NULL
+            )
+        '''))
+        conn.execute(sqlalchemy.text('''
+            CREATE TABLE IF NOT EXISTS prontuarios (
+                id SERIAL PRIMARY KEY,
+                cpf_cliente TEXT NOT NULL,
+                data_atendimento TEXT NOT NULL,
+                profissional TEXT NOT NULL,
+                atividades TEXT NOT NULL,
+                evolucao TEXT NOT NULL
+            )
+        '''))
+
+inicializar_tabelas()
 
 def adicionar_cliente(cpf, nome, email, data_nasc, idade, endereco, telefone, contato_emergencia, objetivo, plano, dias_semana, horarios):
-    cursor = conn.cursor()
     dias_str = ", ".join(dias_semana)
     horarios_str = ", ".join(horarios)
     try:
-        cursor.execute('''
-            INSERT INTO clientes (cpf, nome, email, data_nascimento, idade, endereco, telefone, contato_emergencia, objetivo, plano, dias_semana, horarios)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (cpf, nome, email, data_nasc, idade, endereco, telefone, contato_emergencia, objetivo, plano, dias_str, horarios_str))
-        conn.commit()
+        with engine.begin() as conn:
+            conn.execute(sqlalchemy.text('''
+                INSERT INTO clientes (cpf, nome, email, data_nascimento, idade, endereco, telefone, contato_emergencia, objetivo, plano, dias_semana, horarios)
+                VALUES (:cpf, :nome, :email, :data_nascimento, :idade, :endereco, :telefone, :contato_emergencia, :objetivo, :plano, :dias_semana, :horarios)
+            '''), {
+                "cpf": cpf, "nome": nome, "email": email, "data_nascimento": data_nasc,
+                "idade": idade, "endereco": endereco, "telefone": telefone, "contato_emergencia": contato_emergencia,
+                "objetivo": objetivo, "plano": plano, "dias_semana": dias_str, "horarios": horarios_str
+            })
         return True, "Cliente cadastrado com sucesso!"
-    except sqlite3.IntegrityError:
-        return False, "Erro: Já existe um cliente cadastrado com este CPF!"
+    except Exception as e:
+        return False, f"Erro: Já existe um cliente cadastrado com este CPF ou erro de conexão!"
 
 def atualizar_cliente(cpf_antigo, nome, email, data_nasc, idade, endereco, telefone, contato_emergencia, objetivo, plano, dias_semana, horarios):
-    cursor = conn.cursor()
     dias_str = ", ".join(dias_semana)
     horarios_str = ", ".join(horarios)
-    cursor.execute('''
-        UPDATE clientes 
-        SET nome = ?, email = ?, data_nascimento = ?, idade = ?, endereco = ?, telefone = ?, contato_emergencia = ?, objetivo = ?, plano = ?, dias_semana = ?, horarios = ?
-        WHERE cpf = ?
-    ''', (nome, email, data_nasc, idade, endereco, telefone, contato_emergencia, objetivo, plano, dias_str, horarios_str, cpf_antigo))
-    conn.commit()
+    with engine.begin() as conn:
+        conn.execute(sqlalchemy.text('''
+            UPDATE clientes 
+            SET nome = :nome, email = :email, data_nascimento = :data_nascimento, idade = :idade, endereco = :endereco, telefone = :telefone, contato_emergencia = :contato_emergencia, objetivo = :objetivo, plano = :plano, dias_semana = :dias_semana, horarios = :horarios
+            WHERE cpf = :cpf_antigo
+        '''), {
+            "nome": nome, "email": email, "data_nascimento": data_nasc, "idade": idade,
+            "endereco": endereco, "telefone": telefone, "contato_emergencia": contato_emergencia,
+            "objetivo": objetivo, "plano": plano, "dias_semana": dias_str, "horarios": horarios_str, "cpf_antigo": cpf_antigo
+        })
     return True, "Cliente atualizado com sucesso!"
 
 def deletar_cliente(cpf):
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM clientes WHERE cpf = ?", (cpf,))
-    conn.commit()
-    
-    cursor.execute("SELECT COUNT(*) FROM clientes")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("DELETE FROM sqlite_sequence WHERE name='clientes'")
-        conn.commit()
+    with engine.begin() as conn:
+        conn.execute(sqlalchemy.text("DELETE FROM clientes WHERE cpf = :cpf"), {"cpf": cpf})
+        
+        # Reinicia a sequência do ID se a tabela estiver vazia
+        result = conn.execute(sqlalchemy.text("SELECT COUNT(*) FROM clientes")).fetchone()[0]
+        if result == 0:
+            conn.execute(sqlalchemy.text("ALTER SEQUENCE clientes_id_seq RESTART WITH 1"))
 
 def limpa_todos_clientes():
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM clientes")
-    cursor.execute("DELETE FROM sqlite_sequence WHERE name='clientes'")
-    conn.commit()
+    with engine.begin() as conn:
+        conn.execute(sqlalchemy.text("DELETE FROM clientes"))
+        conn.execute(sqlalchemy.text("ALTER SEQUENCE clientes_id_seq RESTART WITH 1"))
 
 def carregar_clientes():
-    return pd.read_sql_query("SELECT * FROM clientes", conn)
+    return pd.read_sql("SELECT * FROM clientes", engine)
 
 def adicionar_profissional(nome, conselho, registro):
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO profissionais (nome_prof, conselho, registro)
-        VALUES (?, ?, ?)
-    ''', (nome, conselho, registro))
-    conn.commit()
+    with engine.begin() as conn:
+        conn.execute(sqlalchemy.text('''
+            INSERT INTO profissionais (nome_prof, conselho, registro)
+            VALUES (:nome, :conselho, :registro)
+        '''), {"nome": nome, "conselho": conselho, "registro": registro})
 
 def atualizar_profissional(prof_id, nome, conselho, registro):
-    cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE profissionais 
-        SET nome_prof = ?, conselho = ?, registro = ?
-        WHERE id = ?
-    ''', (nome, conselho, registro, prof_id))
-    conn.commit()
+    with engine.begin() as conn:
+        conn.execute(sqlalchemy.text('''
+            UPDATE profissionais 
+            SET nome_prof = :nome, conselho = :conselho, registro = :registro
+            WHERE id = :id
+        '''), {"nome": nome, "conselho": conselho, "registro": registro, "id": prof_id})
 
 def deletar_profissional(prof_id):
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM profissionais WHERE id = ?", (prof_id,))
-    conn.commit()
-    
-    cursor.execute("SELECT COUNT(*) FROM profissionais")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("DELETE FROM sqlite_sequence WHERE name='profissionais'")
-        conn.commit()
+    with engine.begin() as conn:
+        conn.execute(sqlalchemy.text("DELETE FROM profissionais WHERE id = :id"), {"id": prof_id})
+        result = conn.execute(sqlalchemy.text("SELECT COUNT(*) FROM profissionais")).fetchone()[0]
+        if result == 0:
+            conn.execute(sqlalchemy.text("ALTER SEQUENCE profissionais_id_seq RESTART WITH 1"))
 
 def carregar_profissionais():
-    return pd.read_sql_query("SELECT * FROM profissionais", conn)
+    return pd.read_sql("SELECT * FROM profissionais", engine)
 
 def adicionar_prontuario(cpf, data, profissional, atividades, evolucao):
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO prontuarios (cpf_cliente, data_atendimento, profissional, atividades, evolucao)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (cpf, data, profissional, atividades, evolucao))
-    conn.commit()
+    with engine.begin() as conn:
+        conn.execute(sqlalchemy.text('''
+            INSERT INTO prontuarios (cpf_cliente, data_atendimento, profissional, atividades, evolucao)
+            VALUES (:cpf, :data, :profissional, :atividades, :evolucao)
+        '''), {"cpf": cpf, "data": data, "profissional": profissional, "atividades": atividades, "evolucao": evolucao})
 
 def carregar_prontuarios(cpf=""):
     if cpf:
-        return pd.read_sql_query("SELECT * FROM prontuarios WHERE cpf_cliente = ?", conn, params=(cpf,))
-    return pd.read_sql_query("SELECT * FROM prontuarios", conn)
+        return pd.read_sql(sqlalchemy.text("SELECT * FROM prontuarios WHERE cpf_cliente = :cpf"), engine, params={"cpf": cpf})
+    return pd.read_sql("SELECT * FROM prontuarios", engine)
 
 # ==============================================================================
 # FUNÇÕES DE FORMATAÇÃO PADRÃO
