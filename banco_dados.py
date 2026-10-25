@@ -87,17 +87,16 @@ st.markdown("""
 # CONFIGURAÇÃO DO BANCO DE DADOS NA NUVEM (PostgreSQL / Supabase)
 # ==============================================================================
 def conectar_bd():
-    url_padrao = "postgresql+psycopg2://postgres:SUA_SENHA_AQUI@db.didwkuzlfbdudqrlvkpu.supabase.co:5432/postgres"
+    url_padrao = "postgresql+pg8000://postgres:cD9QEGjsV01MkqI6@db.didwkuzlfbdudqrlvkpu.supabase.co:5432/postgres"
     try:
         db_url = st.secrets["SUPABASE_URL"]
+        # Garante que se nos Secrets estiver o psycopg2, ele troca para pg8000 automaticamente
+        db_url = db_url.replace("postgresql+psycopg2://", "postgresql+pg8000://")
     except Exception:
         db_url = url_padrao
         
     engine = sqlalchemy.create_engine(db_url)
     return engine
-
-# ---> ATENÇÃO: Esta linha é essencial para criar a variável 'engine'!
-engine = conectar_bd()
 
 def inicializar_tabelas():
     with engine.begin() as conn:
