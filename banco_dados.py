@@ -82,13 +82,21 @@ st.markdown("""
 # ==============================================================================
 # CONFIGURAÇÃO DO BANCO DE DADOS NA NUVEM (PostgreSQL / Supabase)
 # ==============================================================================
+# ==============================================================================
+# CONFIGURAÇÃO DO BANCO DE DADOS NA NUVEM (PostgreSQL / Supabase)
+# ==============================================================================
 def conectar_bd():
-    # Pega a string de conexão dos secrets do Streamlit
-    db_url = st.secrets["SUPABASE_URL"]
+    # URL de conexão do Supabase
+    url_padrao = "postgresql+psycopg2://postgres:SUA_SENHA_AQUI@db.didwkuzlfbdudqrlvkpu.supabase.co:5432/postgres"
+    
+    # Tenta pegar dos Secrets da nuvem; se não achar (rodando local), usa a url_padrao
+    try:
+        db_url = st.secrets["SUPABASE_URL"]
+    except Exception:
+        db_url = url_padrao
+        
     engine = sqlalchemy.create_engine(db_url)
     return engine
-
-engine = conectar_bd()
 
 def inicializar_tabelas():
     with engine.begin() as conn:
