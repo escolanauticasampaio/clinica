@@ -90,13 +90,17 @@ def conectar_bd():
     url_padrao = "postgresql+pg8000://postgres:cD9QEGjsV01MkqI6@db.didwkuzlfbdudqrlvkpu.supabase.co:5432/postgres"
     try:
         db_url = st.secrets["SUPABASE_URL"]
-        # Garante que se nos Secrets estiver o psycopg2, ele troca para pg8000 automaticamente
         db_url = db_url.replace("postgresql+psycopg2://", "postgresql+pg8000://")
     except Exception:
         db_url = url_padrao
         
     engine = sqlalchemy.create_engine(db_url)
     return engine
+
+# ---> CERTIFIQUE-SE DE QUE ESTA LINHA EXISTE FORA DA FUNÇÃO:
+engine = conectar_bd()
+
+        # comandos das tabelas...
 
 def inicializar_tabelas():
     with engine.begin() as conn:
